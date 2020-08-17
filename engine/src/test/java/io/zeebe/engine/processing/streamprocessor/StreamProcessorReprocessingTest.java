@@ -21,6 +21,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 
+import io.zeebe.engine.processing.streamprocessor.StreamProcessor.Phase;
 import io.zeebe.engine.processing.streamprocessor.sideeffect.SideEffectProducer;
 import io.zeebe.engine.processing.streamprocessor.writers.TypedResponseWriter;
 import io.zeebe.engine.processing.streamprocessor.writers.TypedStreamWriter;
@@ -28,11 +29,15 @@ import io.zeebe.engine.util.StreamProcessorRule;
 import io.zeebe.protocol.impl.record.UnifiedRecordValue;
 import io.zeebe.protocol.record.ValueType;
 import io.zeebe.protocol.record.intent.WorkflowInstanceIntent;
+import io.zeebe.test.util.stream.StreamWrapper;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import java.util.stream.IntStream;
+import org.awaitility.Awaitility;
 import org.junit.Rule;
 import org.junit.Test;
 import org.mockito.InOrder;
@@ -85,6 +90,85 @@ public final class StreamProcessorReprocessingTest {
     inOrder.verify(typedRecordProcessor, TIMEOUT.times(2)).onClose();
 
     inOrder.verifyNoMoreInteractions();
+  }
+
+  @Test
+  public void shouldNotSwitchToProcessingAfterReprocessingWhenPaused() throws Exception {
+    // given - bunch of events to reprocess
+    IntStream.range(0, 5000)
+        .forEach(i -> streamProcessorRule.writeWorkflowInstanceEvent(ELEMENT_ACTIVATING, i));
+    final long sourceEvent = streamProcessorRule.writeWorkflowInstanceEvent(ELEMENT_ACTIVATING, 1);
+    streamProcessorRule.writeWorkflowInstanceEventWithSource(
+        WorkflowInstanceIntent.ELEMENT_ACTIVATED, 1, sourceEvent);
+
+    Awaitility.await()
+        .until(
+            () ->
+                streamProcessorRule
+                    .events()
+                    .onlyWorkflowInstanceRecords()
+                    .withIntent(ELEMENT_ACTIVATED),
+            StreamWrapper::exists);
+
+    // when
+    final var countDownLatch = new CountDownLatch(1);
+    final var streamProcessor =
+        streamProcessorRule.startTypedStreamProcessor(
+            (processors, context) ->
+                processors.withListener(
+                    new StreamProcessorLifecycleAware() {
+                      @Override
+                      public void onRecovered(final ReadonlyProcessingContext context) {
+                        countDownLatch.countDown();
+                      }
+                    }));
+    streamProcessor.pauseProcessing();
+    final var success = countDownLatch.await(15, TimeUnit.SECONDS);
+
+    // then
+    assertThat(success).isTrue();
+    final var currentPhase = streamProcessor.getCurrentPhase().join();
+    assertThat(currentPhase).isEqualTo(Phase.PAUSED);
+  }
+
+  @Test
+  public void shouldSwitchToProcessingAfterReprocessingWhenResumed() throws Exception {
+    // given - bunch of events to reprocess
+    IntStream.range(0, 5000)
+        .forEach(i -> streamProcessorRule.writeWorkflowInstanceEvent(ELEMENT_ACTIVATING, i));
+    final long sourceEvent = streamProcessorRule.writeWorkflowInstanceEvent(ELEMENT_ACTIVATING, 1);
+    streamProcessorRule.writeWorkflowInstanceEventWithSource(
+        WorkflowInstanceIntent.ELEMENT_ACTIVATED, 1, sourceEvent);
+
+    Awaitility.await()
+        .until(
+            () ->
+                streamProcessorRule
+                    .events()
+                    .onlyWorkflowInstanceRecords()
+                    .withIntent(ELEMENT_ACTIVATED),
+            StreamWrapper::exists);
+
+    // when
+    final var countDownLatch = new CountDownLatch(1);
+    final var streamProcessor =
+        streamProcessorRule.startTypedStreamProcessor(
+            (processors, context) ->
+                processors.withListener(
+                    new StreamProcessorLifecycleAware() {
+                      @Override
+                      public void onRecovered(final ReadonlyProcessingContext context) {
+                        countDownLatch.countDown();
+                      }
+                    }));
+    streamProcessor.pauseProcessing();
+    streamProcessor.resumeProcessing();
+    final var success = countDownLatch.await(15, TimeUnit.SECONDS);
+
+    // then
+    assertThat(success).isTrue();
+    final var currentPhase = streamProcessor.getCurrentPhase().join();
+    assertThat(currentPhase).isEqualTo(Phase.PROCESSING);
   }
 
   @Test
@@ -339,6 +423,7 @@ public final class StreamProcessorReprocessingTest {
     streamProcessorRule.writeWorkflowInstanceEvent(
         ELEMENT_ACTIVATING); // should be processed and included in the snapshot
     onProcessedListenerLatch.await();
+    streamProcessorRule.snapshot();
     streamProcessorRule.closeStreamProcessor();
 
     // when
@@ -395,6 +480,7 @@ public final class StreamProcessorReprocessingTest {
     final long snapshotPosition =
         streamProcessorRule.writeWorkflowInstanceEvent(ELEMENT_ACTIVATING, 1);
     onProcessedListenerLatch.await();
+    streamProcessorRule.snapshot();
     streamProcessorRule.closeStreamProcessor();
     final long lastSourceEvent =
         streamProcessorRule.writeWorkflowInstanceEvent(ELEMENT_ACTIVATING, 1);
