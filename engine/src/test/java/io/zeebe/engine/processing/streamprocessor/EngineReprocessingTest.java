@@ -26,9 +26,6 @@ import org.junit.Test;
 public class EngineReprocessingTest {
 
   private static final String PROCESS_ID = "process";
-  private static final String ELEMENT_ID = "task";
-  private static final String JOB_TYPE = "test";
-  private static final String INPUT_COLLECTION_VARIABLE = "items";
 
   private static final BpmnModelInstance SIMPLE_FLOW =
       Bpmn.createExecutableProcess(PROCESS_ID).startEvent().endEvent().done();
