@@ -56,7 +56,7 @@ import org.junit.rules.TemporaryFolder;
 
 public final class TestStreams {
 
-  public static final String SNAPSHOT_FOLDER = "snapshot";
+  private static final String SNAPSHOT_FOLDER = "snapshot";
 
   static final Duration SNAPSHOT_INTERVAL = Duration.ofMinutes(1);
   private static final Map<Class<?>, ValueType> VALUE_TYPES = new HashMap<>();
