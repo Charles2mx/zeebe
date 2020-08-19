@@ -49,6 +49,7 @@ public class EngineReprocessingTest {
                 RecordingExporter.workflowInstanceRecords()
                     .withElementType(BpmnElementType.PROCESS)
                     .withIntent(ELEMENT_ACTIVATED)
+                    .limit(100)
                     .count(),
             (count) -> count == 100);
 
