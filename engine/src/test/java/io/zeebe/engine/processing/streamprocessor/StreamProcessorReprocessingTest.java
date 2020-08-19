@@ -110,8 +110,7 @@ public final class StreamProcessorReprocessingTest {
                     .withIntent(ELEMENT_ACTIVATED),
             StreamWrapper::exists);
 
-    // when
-    final var countDownLatch = new CountDownLatch(1);
+    final var onRecoveredLatch = new CountDownLatch(1);
     final var streamProcessor =
         streamProcessorRule.startTypedStreamProcessor(
             (processors, context) ->
@@ -119,11 +118,12 @@ public final class StreamProcessorReprocessingTest {
                     new StreamProcessorLifecycleAware() {
                       @Override
                       public void onRecovered(final ReadonlyProcessingContext context) {
-                        countDownLatch.countDown();
+                        onRecoveredLatch.countDown();
                       }
                     }));
+    // when
     streamProcessor.pauseProcessing();
-    final var success = countDownLatch.await(15, TimeUnit.SECONDS);
+    final var success = onRecoveredLatch.await(15, TimeUnit.SECONDS);
 
     // then
     assertThat(success).isTrue();
